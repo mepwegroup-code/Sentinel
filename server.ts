@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "node:fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -591,6 +590,72 @@ export async function createApp() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Server-side authentication. Never ship credentials in the browser bundle.
+  // Required for both preview and production Vercel deployments.
+  const adminPassword = process.env.SENTINEL_ADMIN_PASSWORD || "";
+  const sessionSecret = process.env.SENTINEL_SESSION_SECRET || "";
+  const authReady = adminPassword.length >= 12 && sessionSecret.length >= 32;
+  const sessionDurationMs = 8 * 60 * 60 * 1000;
+
+  const secureCompare = (left: string, right: string): boolean => {
+    const a = crypto.createHash("sha256").update(left).digest();
+    const b = crypto.createHash("sha256").update(right).digest();
+    return crypto.timingSafeEqual(a, b);
+  };
+  const verifySession = (req: express.Request): boolean => {
+    if (!authReady) return false;
+    const cookie = req.headers.cookie?.split(";").map(part => part.trim())
+      .find(part => part.startsWith("sentinel_session="));
+    if (!cookie) return false;
+    try {
+      const raw = decodeURIComponent(cookie.slice("sentinel_session=".length));
+      const parts = raw.split(".");
+      if (parts.length !== 2) return false;
+      const decoded = Buffer.from(parts[0], "base64url").toString("utf8");
+      const [user, expiryText] = decoded.split(":");
+      const expiry = Number(expiryText);
+      if (user !== "admin" || !Number.isSafeInteger(expiry) || expiry <= Date.now()) return false;
+      const expected = crypto.createHmac("sha256", sessionSecret).update(parts[0]).digest("hex");
+      return secureCompare(parts[1], expected);
+    } catch {
+      return false;
+    }
+  };
+
+  // The admin login is available even when no session exists.
+  app.get("/api/auth/status", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ configured: authReady, authenticated: verifySession(req) });
+  });
+  app.post("/api/auth/login", createRateLimiter(5, 60000), (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!authReady) {
+      return res.status(503).json({ error: "SENTINEL_ADMIN_PASSWORD (12+ chars) and SENTINEL_SESSION_SECRET (32+ chars) must be configured on the server.", errorCode: "AUTH_NOT_CONFIGURED" });
+    }
+    const username = typeof req.body?.username === "string" ? req.body.username : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    if (username !== "admin" || !secureCompare(password, adminPassword)) {
+      return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu." });
+    }
+    const encoded = Buffer.from(`admin:${Date.now() + sessionDurationMs}`).toString("base64url");
+    const signature = crypto.createHmac("sha256", sessionSecret).update(encoded).digest("hex");
+    const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
+    res.setHeader("Set-Cookie", `sentinel_session=${encoded}.${signature}; HttpOnly; Path=/; SameSite=Strict; Max-Age=28800${secure ? "; Secure" : ""}`);
+    return res.json({ authenticated: true });
+  });
+  app.post("/api/auth/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", "sentinel_session=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0");
+    res.json({ authenticated: false });
+  });
+
+  // All inspection APIs require a valid signed operator session.
+  app.use("/api", (req, res, next) => {
+    if (req.path === "/health" || req.path.startsWith("/auth/") || req.method === "OPTIONS") return next();
+    if (!authReady) return res.status(503).json({ errorCode: "AUTH_NOT_CONFIGURED", error: "Configure server-side Sentinel authentication before enabling network scans." });
+    if (!verifySession(req)) return res.status(401).json({ errorCode: "AUTH_REQUIRED", error: "Đăng nhập quản trị Sentinel để sử dụng các chức năng quét." });
+    next();
+  });
 
   // Global rate limiter for security assessment endpoints (60 req / min)
   app.use("/api/", createRateLimiter(60, 60000));
@@ -2553,6 +2618,9 @@ Format all configuration scripts inside clear Markdown code blocks with language
   // 15c. Receiver for Real Local LAN Agent Telemetry
   app.post("/api/lan-agent-report", (req, res) => {
     try {
+      if (process.env.VERCEL === "1") {
+        return res.status(503).json({ success: false, errorCode: "PERSISTENT_LAN_STORAGE_REQUIRED", error: "Vercel serverless cannot reliably store or retrieve LAN agent sessions. Configure a persistent authenticated ingestion backend." });
+      }
       const report = req.body;
       const sessionKey = report.sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
       activeLanReports.set(sessionKey, {
@@ -3614,6 +3682,14 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
   app.post("/api/internal-network/endpoint-action", async (req, res) => {
     try {
       const { endpointId, action, payload } = req.body;
+      // No router/firewall integration exists here. Do not claim a network action took place.
+      if (["isolate", "throttle", "wake_on_lan", "deep_scan"].includes(action)) {
+        return res.status(501).json({
+          success: false,
+          errorCode: "LAN_AGENT_ACTION_UNAVAILABLE",
+          error: "Chức năng này yêu cầu LAN Agent có quyền quản trị thiết bị mạng. Sentinel trên Vercel chưa thực thi tác động lên router/thiết bị."
+        });
+      }
       if (!endpointId || !action) {
         return res.status(400).json({ error: "endpointId and action are required" });
       }
@@ -4266,6 +4342,7 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
 
   // Vite middleware for local development only; Vercel serves the built SPA separately.
   if (process.env.VERCEL !== "1" && process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
