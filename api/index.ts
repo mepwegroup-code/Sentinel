@@ -8,9 +8,14 @@ export default async function handler(req: Request, res: Response) {
     const app = await appPromise;
     // Vercel routes all /api/* requests to this handler.
     // Preserve the original API path if the routing layer rewrote the URL.
-    const original = req.headers["x-vercel-original-path"];
-    if (typeof original === "string" && original.startsWith("/api/")) {
-      req.url = original;
+    const requested = new URL(req.url || "/", "http://localhost");
+    const apiPath = requested.searchParams.get("sentinelPath");
+    const agentPath = requested.searchParams.get("sentinelAgentPath");
+    if (apiPath !== null || agentPath !== null) {
+      requested.searchParams.delete("sentinelPath");
+      requested.searchParams.delete("sentinelAgentPath");
+      const suffix = (apiPath ?? agentPath ?? "").replace(/^\\/+/, "");
+      req.url = `${apiPath !== null ? "/api/" : "/agent/"}${suffix}${requested.search}`;
     }
     app(req, res);
   } catch (error) {
