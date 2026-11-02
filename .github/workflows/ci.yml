@@ -31,3 +31,15 @@ jobs:
           test -s Dockerfile
       - name: Build Coolify Docker image
         run: docker build --pull -t sentinel-ci:${{ github.sha }} .
+      - name: Smoke test Docker runtime and health endpoint
+        run: |
+          docker run -d --name sentinel-smoke -p 127.0.0.1:3000:3000 sentinel-ci:${{ github.sha }}
+          trap 'docker logs sentinel-smoke; docker rm -f sentinel-smoke' EXIT
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --silent --show-error --fail http://127.0.0.1:3000/api/health; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:3000/api/health | grep '"status":"ok"'
+          curl --fail --silent http://127.0.0.1:3000/api/auth/status | grep '"configured":false'
