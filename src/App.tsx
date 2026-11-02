@@ -51,6 +51,24 @@ export default function App() {
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/status', { credentials: 'same-origin' })
+      .then(async response => {
+        if (!response.ok) throw new Error('Authentication service unavailable');
+        return response.json();
+      })
+      .then(data => {
+        if (cancelled) return;
+        setIsAdminLoggedIn(Boolean(data.authenticated));
+        setShowAdminLogin(!data.authenticated);
+      })
+      .catch(() => {
+        if (!cancelled) setShowAdminLogin(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
   
   // Scan Data State
   const [whoisData, setWhoisData] = useState<WhoisRecord | null>(null);
@@ -287,8 +305,8 @@ export default function App() {
           '  vulnerabilities  List details of discovered security issues.',
           '  ports            Display all mapped open TCP/UDP ports.',
           '  ddos             Show DDoS benchmarking metrics & resilience.',
-          '  ping <host>      Simulate a low-level network latency audit.',
-          '  nmap <host>      Trigger a full simulated port and service map.',
+          '  ping <host>      Show ICMP availability without fake measurements.',
+          '  nmap <host>      Show measured backend TCP port scan results.',
           '----------------------------------------------'
         ]);
         break;
@@ -356,37 +374,30 @@ export default function App() {
         const pingTarget = parts[1] || domain;
         setTerminalLogs(prev => [
           ...prev,
-          `PING ${pingTarget} (93.184.216.34) 56(84) bytes of data.`,
-          `64 bytes from 93.184.216.34: icmp_seq=1 ttl=56 time=14.2 ms`,
-          `64 bytes from 93.184.216.34: icmp_seq=2 ttl=56 time=13.8 ms`,
-          `64 bytes from 93.184.216.34: icmp_seq=3 ttl=56 time=15.1 ms`,
-          `64 bytes from 93.184.216.34: icmp_seq=4 ttl=56 time=14.0 ms`,
-          `--- ${pingTarget} ping statistics ---`,
-          `4 packets transmitted, 4 received, 0% packet loss, time 3004ms`,
-          `rtt min/avg/max/mdev = 13.821/14.282/15.112/0.490 ms`
+          `[INFO] Chưa có phép đo ICMP thực tế cho ${pingTarget}.`,
+          '[INFO] ICMP ping cần LAN Agent hoặc trình đo trên backend được cấp quyền. Không hiển thị số liệu mô phỏng.'
         ]);
         break;
       }
 
       case 'nmap': {
         const nmapTarget = parts[1] || domain;
-        const openPorts = portData?.results?.filter((p: any) => p.status === 'Open') || [
-          { port: 21, protocol: 'tcp', service: 'ftp' },
-          { port: 22, protocol: 'tcp', service: 'ssh' },
-          { port: 80, protocol: 'tcp', service: 'http' },
-          { port: 443, protocol: 'tcp', service: 'https' }
-        ];
-        
+        if (nmapTarget !== domain) {
+          setTerminalLogs(prev => [...prev, `[WARN] Kết quả quét hiện tại chỉ thuộc mục tiêu ${domain}; không có dữ liệu cho ${nmapTarget}.`]);
+          break;
+        }
+        if (!portData?.results) {
+          setTerminalLogs(prev => [...prev, `[WARN] Chưa có kết quả quét cổng cho ${nmapTarget}. Hãy chạy scan trước.`]);
+          break;
+        }
+        const openPorts = portData.results.filter((p: any) => p.status === 'Open' || p.status === 'open');
         setTerminalLogs(prev => [
           ...prev,
-          `Starting Nmap 7.92 ( https://nmap.org ) at ${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC`,
-          `Nmap scan report for ${nmapTarget} (93.184.216.34)`,
-          `Host is up (0.014s latency).`,
-          `rDNS record for 93.184.216.34: edge.${nmapTarget}`,
-          `Not shown: 996 closed tcp ports (reset)`,
-          `PORT     STATE SERVICE`,
-          ...openPorts.map((p: any) => `${String(p.port).padEnd(8)}/tcp   open  ${p.service}`),
-          `Nmap done: 1 IP address (1 host up) scanned in 1.45 seconds`
+          `[PORT SCAN] Kết quả TCP từ backend cho ${nmapTarget} (không phải Nmap):`,
+          `Đã kiểm tra: ${portData.scannedPortsCount ?? portData.results.length}; mở: ${openPorts.length}`,
+          'PORT     STATE SERVICE',
+          ...openPorts.map((p: any) => `${p.port}/${p.protocol || 'tcp'} open ${p.service || 'unknown'}`),
+          '[INFO] Không suy diễn rDNS hoặc OS nếu không có dữ liệu đo.'
         ]);
         break;
       }
