@@ -504,7 +504,7 @@ export const NetworkForceGraph: React.FC<NetworkForceGraphProps> = ({ devices, o
         .attr('stroke', '#ffffff')
         .attr('stroke-width', 2.5);
 
-      d3.select(event.currentTarget).select('.node-circle')
+      d3.select(event.currentTarget as SVGGElement).select('.node-circle')
         .attr('stroke', '#f59e0b')
         .attr('stroke-width', 4);
     });
