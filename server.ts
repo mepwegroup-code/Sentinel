@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "node:fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -586,16 +585,91 @@ setInterval(() => {
   }
 }, 60000);
 
-async function startServer() {
+export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json());
+
+  // Server-side authentication. Never ship credentials in the browser bundle.
+  // Required for preview and production deployments on Coolify.
+  const adminPassword = process.env.SENTINEL_ADMIN_PASSWORD || "";
+  const sessionSecret = process.env.SENTINEL_SESSION_SECRET || "";
+  const authReady = adminPassword.length >= 12 && sessionSecret.length >= 32;
+  const agentToken = process.env.SENTINEL_AGENT_TOKEN || "";
+  const sessionDurationMs = 8 * 60 * 60 * 1000;
+
+  const secureCompare = (left: string, right: string): boolean => {
+    const a = crypto.createHash("sha256").update(left).digest();
+    const b = crypto.createHash("sha256").update(right).digest();
+    return crypto.timingSafeEqual(a, b);
+  };
+  const verifyAgent = (req: express.Request): boolean => {
+    if (agentToken.length < 32) return false;
+    const authorization = req.headers.authorization || "";
+    if (!authorization.startsWith("Bearer ")) return false;
+    return secureCompare(authorization.slice(7), agentToken);
+  };
+  const verifySession = (req: express.Request): boolean => {
+    if (!authReady) return false;
+    const cookie = req.headers.cookie?.split(";").map(part => part.trim())
+      .find(part => part.startsWith("sentinel_session="));
+    if (!cookie) return false;
+    try {
+      const raw = decodeURIComponent(cookie.slice("sentinel_session=".length));
+      const parts = raw.split(".");
+      if (parts.length !== 2) return false;
+      const decoded = Buffer.from(parts[0], "base64url").toString("utf8");
+      const [user, expiryText] = decoded.split(":");
+      const expiry = Number(expiryText);
+      if (user !== "admin" || !Number.isSafeInteger(expiry) || expiry <= Date.now()) return false;
+      const expected = crypto.createHmac("sha256", sessionSecret).update(parts[0]).digest("hex");
+      return secureCompare(parts[1], expected);
+    } catch {
+      return false;
+    }
+  };
+
+  // The admin login is available even when no session exists.
+  app.get("/api/auth/status", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ configured: authReady, authenticated: verifySession(req) });
+  });
+  app.post("/api/auth/login", createRateLimiter(5, 60000), (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!authReady) {
+      return res.status(503).json({ error: "SENTINEL_ADMIN_PASSWORD (12+ chars) and SENTINEL_SESSION_SECRET (32+ chars) must be configured on the server.", errorCode: "AUTH_NOT_CONFIGURED" });
+    }
+    const username = typeof req.body?.username === "string" ? req.body.username : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    if (username !== "admin" || !secureCompare(password, adminPassword)) {
+      return res.status(401).json({ error: "Sai tên đăng nhập hoặc mật khẩu." });
+    }
+    const encoded = Buffer.from(`admin:${Date.now() + sessionDurationMs}`).toString("base64url");
+    const signature = crypto.createHmac("sha256", sessionSecret).update(encoded).digest("hex");
+    const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
+    res.setHeader("Set-Cookie", `sentinel_session=${encoded}.${signature}; HttpOnly; Path=/; SameSite=Strict; Max-Age=28800${secure ? "; Secure" : ""}`);
+    return res.json({ authenticated: true });
+  });
+  app.post("/api/auth/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", "sentinel_session=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0");
+    res.json({ authenticated: false });
+  });
+
+  // All inspection APIs require a valid signed operator session.
+  app.use("/api", (req, res, next) => {
+    if (req.path === "/health" || req.path.startsWith("/auth/") || req.method === "OPTIONS") return next();
+    // An on-premises sensor has no browser cookie. Accept only its dedicated secret,
+    // and only on the telemetry ingest endpoint.
+    if (req.path === "/lan-agent-report" && verifyAgent(req)) return next();
+    if (!authReady) return res.status(503).json({ errorCode: "AUTH_NOT_CONFIGURED", error: "Configure server-side Sentinel authentication before enabling network scans." });
+    if (!verifySession(req)) return res.status(401).json({ errorCode: "AUTH_REQUIRED", error: "Đăng nhập quản trị Sentinel để sử dụng các chức năng quét." });
+    next();
+  });
 
   // Global rate limiter for security assessment endpoints (60 req / min)
   app.use("/api/", createRateLimiter(60, 60000));
 
-  // Comprehensive health check endpoints for Cloud Run and container probes
+  // Health endpoints for Docker and Coolify container probes
   app.all(["/api/health", "/healthz", "/health"], (_req, res) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
@@ -2549,20 +2623,58 @@ Format all configuration scripts inside clear Markdown code blocks with language
 
   // Store telemetry submitted by local agent
   const activeLanReports = new Map<string, any>();
+  const reportDirectory = process.env.SENTINEL_DATA_DIR || path.join(process.cwd(), "data");
+  const latestReportFile = path.join(reportDirectory, "lan-report.json");
+  try {
+    const saved = JSON.parse(fs.readFileSync(latestReportFile, "utf8"));
+    if (Array.isArray(saved.devices) && saved.devices.length <= 1024
+        && Number.isFinite(Date.parse(saved.receivedAt))
+        && Date.now() - Date.parse(saved.receivedAt) < 24 * 60 * 60 * 1000) {
+      activeLanReports.set("latest", saved);
+    }
+  } catch {
+    // First start or unavailable persistent volume.
+  }
 
   // 15c. Receiver for Real Local LAN Agent Telemetry
   app.post("/api/lan-agent-report", (req, res) => {
     try {
       const report = req.body;
-      const sessionKey = report.sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      activeLanReports.set(sessionKey, {
-        ...report,
-        receivedAt: new Date().toISOString()
-      });
-      console.log(`[+] Received LAN Agent Telemetry for session: ${sessionKey} (${report.devices?.length || 0} devices)`);
-      res.json({ success: true, count: report.devices?.length || 0 });
+      if (!report || !Array.isArray(report.devices) || report.devices.length > 1024) {
+        return res.status(400).json({ error: "Invalid agent report (devices array, max 1024 required)" });
+      }
+      const rawSession = typeof report.sessionToken === "string" ? report.sessionToken : "";
+      const sessionKey = /^[a-zA-Z0-9_-]{8,128}$/.test(rawSession) ? rawSession : "default-session";
+      const sanitized = {
+        agentVersion: String(report.agentVersion || "").slice(0, 30),
+        sessionToken: sessionKey,
+        timestamp: String(report.timestamp || new Date().toISOString()).slice(0, 48),
+        clientLocalIp: String(report.clientLocalIp || "").slice(0, 64),
+        gatewayIp: String(report.gatewayIp || "").slice(0, 64),
+        subnetRange: String(report.subnetRange || "").slice(0, 64),
+        devices: report.devices.map((device: any) => ({
+          ip: String(device.ip || "").slice(0, 64),
+          mac: String(device.mac || "").slice(0, 32),
+          hostname: String(device.hostname || "").slice(0, 120),
+          openPorts: Array.isArray(device.openPorts) ? device.openPorts.filter((p: unknown) => typeof p === "number" && Number.isInteger(p) && p > 0 && p < 65536).slice(0, 100) : [],
+          latencyMs: Number.isFinite(device.latencyMs) && device.latencyMs >= 0 ? device.latencyMs : null,
+          isGateway: Boolean(device.isGateway),
+          isCurrentDevice: Boolean(device.isCurrentDevice),
+          measuredAt: String(device.measuredAt || "").slice(0, 48)
+        })),
+        receivedAt: new Date().toISOString(),
+        source: "agent-reported"
+      };
+      fs.mkdirSync(reportDirectory, { recursive: true, mode: 0o700 });
+      const tmp = latestReportFile + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(sanitized), { mode: 0o600 });
+      fs.renameSync(tmp, latestReportFile);
+      activeLanReports.set(sessionKey, sanitized);
+      activeLanReports.set("latest", sanitized);
+      res.json({ success: true, count: sanitized.devices.length, sessionToken: sessionKey });
     } catch (err: any) {
-      res.status(500).json({ error: "Failed to store agent report: " + err.message });
+      console.error("LAN report store failed", err);
+      res.status(500).json({ error: "Unable to persist LAN agent report" });
     }
   });
 
@@ -2573,16 +2685,16 @@ Format all configuration scripts inside clear Markdown code blocks with language
 
       // Check if real telemetry was passed in or cached from sentinel-agent.mjs
       const sessionKey = sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      const cachedReport = activeLanReports.get(sessionKey);
+      const cachedReport = activeLanReports.get(sessionKey) || activeLanReports.get("latest");
       const incomingDevices = Array.isArray(devices) && devices.length > 0 ? devices : (cachedReport?.devices || []);
 
-      // If no agent telemetry is available, Cloud Run container CANNOT reach private RFC1918 LAN
+      // If no agent telemetry is available, Máy chủ Coolify CANNOT reach private RFC1918 LAN
       if (incomingDevices.length === 0) {
         return res.json({
           reachable: false,
           source: 'unavailable',
           errorCode: 'LAN_AGENT_REQUIRED',
-          error: "Cloud Run container đang hoạt động trên đám mây (datacenter), không thể truy cập trực tiếp vào dải mạng nội bộ riêng (192.168.x.x / 10.x.x.x) của bạn do rào cản phân tách mạng NAT.",
+          error: "Máy chủ Coolify đang hoạt động trên đám mây (datacenter), không thể truy cập trực tiếp vào dải mạng nội bộ riêng (192.168.x.x / 10.x.x.x) của bạn do rào cản phân tách mạng NAT.",
           technicalReason: "Theo nguyên tắc không bịa đặt dữ liệu của Sentinel OS, kết quả kiểm toán mạng nội bộ bắt buộc phải đến từ phép đo thực tế của card mạng trên máy bạn.",
           agentRequired: true,
           agentDownloadUrl: "/agent/sentinel-agent.mjs",
@@ -2761,7 +2873,7 @@ Format all configuration scripts inside clear Markdown code blocks with language
             mode: 'hosts',
             reachable: false,
             source: 'unavailable',
-            error: "Không thể quét dải IP nội bộ (RFC 1918) từ Cloud Run container. Hãy sử dụng Sentinel Local Agent.",
+            error: "Không thể quét dải IP nội bộ (RFC 1918) từ Máy chủ Coolify. Hãy sử dụng Sentinel Local Agent.",
             nodes: []
           });
         }
@@ -3522,7 +3634,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
     try {
       const { subnet, gateway, clientIp, sessionToken, devices } = req.body;
       const sessionKey = sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      const cachedReport = activeLanReports.get(sessionKey);
+      const cachedReport = activeLanReports.get(sessionKey) || activeLanReports.get("latest");
       const incomingDevices = Array.isArray(devices) && devices.length > 0 ? devices : (cachedReport?.devices || []);
 
       if (incomingDevices.length === 0) {
@@ -3530,7 +3642,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
           reachable: false,
           source: 'unavailable',
           errorCode: 'LAN_AGENT_REQUIRED',
-          error: "Cloud Run container đang chạy trên đám mây, không thể quét dải mạng nội bộ (RFC1918) của bạn.",
+          error: "Máy chủ Coolify đang chạy trên đám mây, không thể quét dải mạng nội bộ (RFC1918) của bạn.",
           technicalReason: "Để tuân thủ nguyên tắc không bịa số liệu, hãy tải và chạy Sentinel Agent trên máy tính trong mạng LAN.",
           agentRequired: true,
           agentDownloadUrl: "/agent/sentinel-agent.mjs",
@@ -3556,7 +3668,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
         gateway: targetGateway,
         clientIp: targetClientIp,
         scannedRange: `${baseSubnet}.1 - ${baseSubnet}.254`,
-        scanDurationMs: 850,
+        scanDurationMs: null,
         totalEndpointsFound: endpoints.length,
         endpoints,
         review,
@@ -3573,7 +3685,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
     try {
       const { subnet, gateway, clientIp, sessionToken, devices, additional4kStreams, isLargeFileUploader } = req.body;
       const sessionKey = sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      const cachedReport = activeLanReports.get(sessionKey);
+      const cachedReport = activeLanReports.get(sessionKey) || activeLanReports.get("latest");
       const incomingDevices = Array.isArray(devices) && devices.length > 0 ? devices : (cachedReport?.devices || []);
 
       if (incomingDevices.length === 0) {
@@ -3614,6 +3726,14 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
   app.post("/api/internal-network/endpoint-action", async (req, res) => {
     try {
       const { endpointId, action, payload } = req.body;
+      // No router/firewall integration exists here. Do not claim a network action took place.
+      if (["isolate", "throttle", "wake_on_lan", "deep_scan"].includes(action)) {
+        return res.status(501).json({
+          success: false,
+          errorCode: "LAN_AGENT_ACTION_UNAVAILABLE",
+          error: "Chức năng này yêu cầu LAN Agent có quyền quản trị thiết bị mạng. Sentinel chưa tích hợp điều khiển router/thiết bị mạng thực tế."
+        });
+      }
       if (!endpointId || !action) {
         return res.status(400).json({ error: "endpointId and action are required" });
       }
@@ -4264,8 +4384,9 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
     }
   });
 
-  // Vite middleware for development
+  // Development uses Vite middleware; Docker/Coolify serves built SPA in production.
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -4279,9 +4400,15 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Sentinel OS Pentest Suite running on http://localhost:${PORT}`);
-  });
+  return app;
 }
 
-startServer();
+createApp().then(app => {
+  const port = Number(process.env.PORT) || 3000;
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Sentinel OS listening on http://0.0.0.0:${port}`);
+  });
+}).catch(error => {
+  console.error("Unable to start Sentinel server", error);
+  process.exitCode = 1;
+});
