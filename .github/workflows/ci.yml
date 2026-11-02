@@ -31,15 +31,29 @@ jobs:
           test -s Dockerfile
       - name: Build Coolify Docker image
         run: docker build --pull -t sentinel-ci:${{ github.sha }} .
-      - name: Smoke test Docker runtime and health endpoint
+      - name: Smoke test Docker health, admin login and LAN report
         run: |
-          docker run -d --name sentinel-smoke -p 127.0.0.1:3000:3000 sentinel-ci:${{ github.sha }}
+          docker run -d --name sentinel-smoke -p 127.0.0.1:3000:3000 \
+            -e SENTINEL_ADMIN_PASSWORD='ci-admin-password-12345' \
+            -e SENTINEL_SESSION_SECRET='ci-session-signing-key-32-bytes-minimum-123456' \
+            -e SENTINEL_AGENT_TOKEN='ci-agent-token-32-bytes-minimum-123456789' \
+            sentinel-ci:${{ github.sha }}
           trap 'docker logs sentinel-smoke; docker rm -f sentinel-smoke' EXIT
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            if curl --silent --show-error --fail http://127.0.0.1:3000/api/health; then
+            if curl --silent --fail http://127.0.0.1:3000/api/health >/dev/null; then
               break
             fi
             sleep 2
           done
           curl --fail --silent http://127.0.0.1:3000/api/health | grep '"status":"ok"'
-          curl --fail --silent http://127.0.0.1:3000/api/auth/status | grep '"configured":false'
+          curl --fail --silent http://127.0.0.1:3000/api/auth/status | grep '"configured":true'
+          curl --fail --silent --cookie-jar /tmp/sentinel-ci-cookies \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-admin-password-12345"}' \
+            http://127.0.0.1:3000/api/auth/login | grep '"authenticated":true'
+          curl --fail --silent --cookie /tmp/sentinel-ci-cookies \
+            http://127.0.0.1:3000/api/auth/status | grep '"authenticated":true'
+          curl --fail --silent -H 'Content-Type: application/json' \
+            -H 'Authorization: Bearer ci-agent-token-32-bytes-minimum-123456789' \
+            -d '{"sessionToken":"ci-session","devices":[{"ip":"192.168.1.20","openPorts":[80],"hostname":"test-client"}]}' \
+            http://127.0.0.1:3000/api/lan-agent-report | grep '"success":true'
