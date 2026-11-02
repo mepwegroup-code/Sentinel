@@ -84,8 +84,15 @@ jobs:
           docker compose -f compose.yaml port sentinel 3000 | grep '127.0.0.1:3000'
           docker compose -f compose.yaml stop
           docker compose -f compose.yaml start
-          curl --retry 10 --retry-delay 1 --retry-connrefused --fail --silent \
-            http://127.0.0.1:3000/api/health | grep '"status":"ok"'
+          restarted=0
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            if curl --fail --silent http://127.0.0.1:3000/api/health | grep -q '"status":"ok"'; then
+              restarted=1
+              break
+            fi
+            sleep 1
+          done
+          test "$restarted" -eq 1
 
   windows-scripts:
     runs-on: windows-latest
