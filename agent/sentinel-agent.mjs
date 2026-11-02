@@ -50,39 +50,44 @@ console.log('\x1b[1m\x1b[32m%s\x1b[0m', '  SENTINEL OS 2.5 — REAL LOCAL LAN AU
 console.log('\x1b[36m%s\x1b[0m', '════════════════════════════════════════════════════════════════');
 console.log('  [+] Đang nhận diện giao diện mạng nội bộ (Local NICs)...');
 
-// 1. Lấy thông tin card mạng nội bộ
+// 1. Select a Windows/macOS/Linux host NIC, not Docker or WSL virtual switches.
 const networkInterfaces = os.networkInterfaces();
-let primaryIface = null;
-let primaryIp = null;
-let primaryNetmask = null;
-
-for (const [name, ifaces] of Object.entries(networkInterfaces)) {
-  if (!ifaces) continue;
-  for (const iface of ifaces) {
-    if (!iface.internal && iface.family === 'IPv4' && !iface.address.startsWith('169.254.')) {
-      primaryIface = name;
-      primaryIp = iface.address;
-      primaryNetmask = iface.netmask;
-      break;
-    }
-  }
-  if (primaryIp) break;
+const physicalOptions = Object.entries(networkInterfaces).flatMap(([name, ifaces]) =>
+  (ifaces || []).filter(iface =>
+    !iface.internal && iface.family === 'IPv4' &&
+    (/^10\./.test(iface.address) || /^192\.168\./.test(iface.address) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(iface.address))
+  ).map(iface => ({ name, address: iface.address, netmask: iface.netmask, mac: iface.mac }))
+);
+const ifaceArgIdx = args.indexOf('--interface');
+const requestedIface = ifaceArgIdx >= 0 ? args[ifaceArgIdx + 1] : null;
+if (args.includes('--list-interfaces')) {
+  console.table(physicalOptions);
+  process.exit(0);
 }
-
-if (!primaryIp) {
-  console.error('\x1b[31m[-] Không tìm thấy card mạng IPv4 nội bộ nào đang kích hoạt!\x1b[0m');
+const preferred = physicalOptions.filter(nic => !/^(vEthernet|docker|wsl|vmware|virtualbox|hyper-v)/i.test(nic.name));
+const options = preferred.length ? preferred : physicalOptions;
+const candidates = requestedIface ? physicalOptions.filter(nic => nic.name === requestedIface) : options;
+if (candidates.length !== 1) {
+  console.error('[ERROR] Specify a single authorized NIC with --interface "Wi-Fi" or --interface "Ethernet".');
+  console.table(physicalOptions);
   process.exit(1);
 }
-
+const chosen = candidates[0];
+if (chosen.netmask !== '255.255.255.0') {
+  console.error('[ERROR] This agent currently supports /24 subnets only. Refusing to guess another network scope.');
+  process.exit(1);
+}
+const primaryIface = chosen.name;
+const primaryIp = chosen.address;
+const primaryNetmask = chosen.netmask;
 const ipParts = primaryIp.split('.').map(Number);
 const subnetPrefix = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}`;
-const gatewayIp = `${subnetPrefix}.1`;
-
-console.log(`  [*] Interface:  \x1b[33m${primaryIface}\x1b[0m`);
-console.log(`  [*] Local IP:   \x1b[32m${primaryIp}\x1b[0m`);
-console.log(`  [*] Subnet:     \x1b[36m${subnetPrefix}.0/24\x1b[0m (Mask: ${primaryNetmask})`);
-console.log(`  [*] Gateway:    \x1b[36m${gatewayIp}\x1b[0m`);
-console.log('');
+const gatewayIp = `${subnetPrefix}.1`; // Candidate only; do not synthesize an ARP entry.
+console.log(`  [*] Interface: ${primaryIface}`);
+console.log(`  [*] Local IP: ${primaryIp}`);
+console.log(`  [*] Authorized /24 scope: ${subnetPrefix}.0/24`);
+console.log('  [*] Gateway candidate (.1): only confirmed if observed in ARP.');
 
 // 2. Hàm đo TCP RTT thực tế tới IP và Port
 function probeTcp(ip, port, timeoutMs = 800) {
@@ -147,7 +152,9 @@ async function getSystemArpTable() {
         }
       }
 
-      if (ip && mac && mac !== 'FF:FF:FF:FF:FF:FF' && !ip.startsWith('224.') && !ip.startsWith('239.') && !ip.endsWith('.255')) {
+      if (ip && mac && ip.startsWith(subnetPrefix + '.') &&
+          /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac) &&
+          mac !== 'FF:FF:FF:FF:FF:FF' && !ip.endsWith('.0') && !ip.endsWith('.255')) {
         arpEntries.set(ip, mac);
       }
     }
@@ -192,14 +199,12 @@ for (let i = 0; i < COMMON_HOST_IDS.length; i += batchSize) {
 console.log('  [+] Đang trích xuất danh sách thiết bị thực từ ARP cache của hệ điều hành...');
 const arpMap = await getSystemArpTable();
 
-// Thêm Gateway nếu chưa có trong ARP
-if (!arpMap.has(gatewayIp)) {
-  arpMap.set(gatewayIp, 'GATEWAY-MAC (Uncached)');
-}
+// Gateway is included only if actually observed in the host ARP table.
+// Never create an imaginary device when ARP has no gateway entry.
 
 // Thêm chính máy này
 if (!arpMap.has(primaryIp)) {
-  const localMac = primaryIface && networkInterfaces[primaryIface] ? networkInterfaces[primaryIface][0]?.mac?.toUpperCase() : 'LOCAL-NIC';
+  const localMac = chosen.mac?.toUpperCase() || 'LOCAL-NIC';
   arpMap.set(primaryIp, localMac || 'LOCAL-NIC');
 }
 
@@ -247,14 +252,14 @@ for (const [ip, mac] of arpMap.entries()) {
     hostname,
     openPorts,
     latencyMs: bestRtt,
-    status: 'online',
+    status: openPorts.length > 0 || ip === primaryIp ? 'online' : 'arp-seen',
     isCurrentDevice: ip === primaryIp,
     isGateway: ip === gatewayIp,
     measuredAt: new Date().toISOString()
   };
 
   discoveredDevices.push(device);
-  console.log(`\x1b[32mFound\x1b[0m (TCP RTT: ${bestRtt === null ? 'N/A' : bestRtt + 'ms'}, Cổng mở: [${openPorts.join(', ') || 'None'}])`);
+  console.log(`\x1b[32mARP-seen\x1b[0m (TCP RTT: ${bestRtt === null ? 'N/A' : bestRtt + 'ms'}, Cổng mở: [${openPorts.join(', ') || 'None'}])`);
 }
 
 console.log('\n\x1b[36m%s\x1b[0m', '════════════════════════════════════════════════════════════════');
