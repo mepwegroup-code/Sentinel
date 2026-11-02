@@ -14,7 +14,7 @@ export default async function handler(req: Request, res: Response) {
     if (apiPath !== null || agentPath !== null) {
       requested.searchParams.delete("sentinelPath");
       requested.searchParams.delete("sentinelAgentPath");
-      const suffix = (apiPath ?? agentPath ?? "").replace(/^\\/+/, "");
+      const suffix = (apiPath ?? agentPath ?? "").replace(/^\/+/, "");
       req.url = `${apiPath !== null ? "/api/" : "/agent/"}${suffix}${requested.search}`;
     }
     app(req, res);
