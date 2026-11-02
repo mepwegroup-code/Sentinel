@@ -587,7 +587,6 @@ setInterval(() => {
 
 export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json());
 
@@ -2618,9 +2617,6 @@ Format all configuration scripts inside clear Markdown code blocks with language
   // 15c. Receiver for Real Local LAN Agent Telemetry
   app.post("/api/lan-agent-report", (req, res) => {
     try {
-      if (process.env.VERCEL === "1") {
-        return res.status(503).json({ success: false, errorCode: "PERSISTENT_LAN_STORAGE_REQUIRED", error: "Vercel serverless cannot reliably store or retrieve LAN agent sessions. Configure a persistent authenticated ingestion backend." });
-      }
       const report = req.body;
       const sessionKey = report.sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
       activeLanReports.set(sessionKey, {
@@ -4340,15 +4336,15 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
     }
   });
 
-  // Vite middleware for local development only; Vercel serves the built SPA separately.
-  if (process.env.VERCEL !== "1" && process.env.NODE_ENV !== "production") {
+  // Development uses Vite middleware; Docker/Coolify serves built SPA in production.
+  if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else if (process.env.VERCEL !== "1") {
+  } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
@@ -4359,14 +4355,12 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
   return app;
 }
 
-if (process.env.VERCEL !== "1") {
-  createApp().then(app => {
-    const port = Number(process.env.PORT) || 3000;
-    app.listen(port, "0.0.0.0", () => {
-      console.log(`Sentinel OS listening on http://localhost:${port}`);
-    });
-  }).catch(error => {
-    console.error("Unable to start Sentinel server", error);
-    process.exitCode = 1;
+createApp().then(app => {
+  const port = Number(process.env.PORT) || 3000;
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Sentinel OS listening on http://0.0.0.0:${port}`);
   });
-}
+}).catch(error => {
+  console.error("Unable to start Sentinel server", error);
+  process.exitCode = 1;
+});
