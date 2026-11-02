@@ -1,4 +1,4 @@
-name: Sentinel Vercel Build Check
+name: Sentinel Coolify Docker Build
 
 on:
   push:
@@ -10,22 +10,24 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # No lockfile currently exists in the repository, so use npm install
-      # rather than npm ci. Add package-lock.json and switch to npm ci later.
-      - run: npm install --no-audit --no-fund
-      - name: TypeScript validation
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript typecheck
         run: npm run check
-      - name: Vercel frontend build
-        run: npm run build:vercel
-      - name: Verify Vercel config and output
+      - name: Build frontend and production Express server
+        run: npm run build
+      - name: Verify deployable production artifacts
         run: |
-          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('vercel.json','utf8'));if(!c.rewrites||!c.functions['api/index.ts'])process.exit(1);"
           test -s dist/index.html
+          test -s dist/server.cjs
+          test -s Dockerfile
+      - name: Build Coolify Docker image
+        run: docker build --pull -t sentinel-ci:${{ github.sha }} .
