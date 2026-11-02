@@ -287,8 +287,8 @@ export default function App() {
           '  vulnerabilities  List details of discovered security issues.',
           '  ports            Display all mapped open TCP/UDP ports.',
           '  ddos             Show DDoS benchmarking metrics & resilience.',
-          '  ping <host>      Simulate a low-level network latency audit.',
-          '  nmap <host>      Trigger a full simulated port and service map.',
+          '  ping <host>      Explain ICMP measurement availability (no simulated result).',
+          '  nmap <host>      Show actual backend port-scan results for current target.',
           '----------------------------------------------'
         ]);
         break;
@@ -356,37 +356,36 @@ export default function App() {
         const pingTarget = parts[1] || domain;
         setTerminalLogs(prev => [
           ...prev,
-          `PING ${pingTarget} (93.184.216.34) 56(84) bytes of data.`,
-          `64 bytes from 93.184.216.34: icmp_seq=1 ttl=56 time=14.2 ms`,
-          `64 bytes from 93.184.216.34: icmp_seq=2 ttl=56 time=13.8 ms`,
-          `64 bytes from 93.184.216.34: icmp_seq=3 ttl=56 time=15.1 ms`,
-          `64 bytes from 93.184.216.34: icmp_seq=4 ttl=56 time=14.0 ms`,
-          `--- ${pingTarget} ping statistics ---`,
-          `4 packets transmitted, 4 received, 0% packet loss, time 3004ms`,
-          `rtt min/avg/max/mdev = 13.821/14.282/15.112/0.490 ms`
+          `[INFO] Chưa có kết quả ICMP ping thực tế cho ${pingTarget}.`,
+          '[INFO] Trình duyệt không thể gửi ICMP trực tiếp. Hãy dùng agent nội bộ được cấp quyền để đo ping, hoặc kết quả TCP RTT từ backend (không được gọi là ICMP).'
         ]);
         break;
       }
 
       case 'nmap': {
         const nmapTarget = parts[1] || domain;
-        const openPorts = portData?.results?.filter((p: any) => p.status === 'Open') || [
-          { port: 21, protocol: 'tcp', service: 'ftp' },
-          { port: 22, protocol: 'tcp', service: 'ssh' },
-          { port: 80, protocol: 'tcp', service: 'http' },
-          { port: 443, protocol: 'tcp', service: 'https' }
-        ];
-        
+        if (nmapTarget !== domain) {
+          setTerminalLogs(prev => [
+            ...prev,
+            `[WARN] Dữ liệu cổng hiện tại chỉ thuộc mục tiêu ${domain}. Không có dữ liệu đo cho ${nmapTarget}.`
+          ]);
+          break;
+        }
+        if (!portData?.results) {
+          setTerminalLogs(prev => [
+            ...prev,
+            `[WARN] Chưa có kết quả quét cổng cho ${nmapTarget}. Hãy dùng lệnh scan trước.`
+          ]);
+          break;
+        }
+        const openPorts = portData.results.filter((p: any) => p.status === 'Open');
         setTerminalLogs(prev => [
           ...prev,
-          `Starting Nmap 7.92 ( https://nmap.org ) at ${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC`,
-          `Nmap scan report for ${nmapTarget} (93.184.216.34)`,
-          `Host is up (0.014s latency).`,
-          `rDNS record for 93.184.216.34: edge.${nmapTarget}`,
-          `Not shown: 996 closed tcp ports (reset)`,
-          `PORT     STATE SERVICE`,
-          ...openPorts.map((p: any) => `${String(p.port).padEnd(8)}/tcp   open  ${p.service}`),
-          `Nmap done: 1 IP address (1 host up) scanned in 1.45 seconds`
+          `[PORT SCAN] Kết quả TCP backend đã đo cho ${nmapTarget} (không phải Nmap):`,
+          `Đã kiểm tra: ${portData.scannedPortsCount ?? portData.results.length} cổng; cổng mở: ${openPorts.length}`,
+          'PORT     STATE SERVICE',
+          ...openPorts.map((p: any) => `${p.port}/${p.protocol || 'tcp'}   open   ${p.service || 'unknown'}`),
+          '[INFO] Không suy diễn hệ điều hành, phiên bản dịch vụ, rDNS hoặc thời gian quét nếu không có dữ liệu thực.'
         ]);
         break;
       }
