@@ -6,12 +6,22 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.ts": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "agent/sentinel-agent.mjs"
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index?sentinelPath=:path*" },
-    { "source": "/agent/:path*", "destination": "/api/index?sentinelAgentPath=:path*" },
-    { "source": "/((?!api/|agent/|assets/).*)", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index?sentinelPath=:path*"
+    },
+    {
+      "source": "/agent/:path*",
+      "destination": "/api/index?sentinelAgentPath=:path*"
+    },
+    {
+      "source": "/((?!api/|agent/|assets/).*)",
+      "destination": "/index.html"
+    }
   ]
 }
