@@ -595,12 +595,19 @@ export async function createApp() {
   const adminPassword = process.env.SENTINEL_ADMIN_PASSWORD || "";
   const sessionSecret = process.env.SENTINEL_SESSION_SECRET || "";
   const authReady = adminPassword.length >= 12 && sessionSecret.length >= 32;
+  const agentToken = process.env.SENTINEL_AGENT_TOKEN || "";
   const sessionDurationMs = 8 * 60 * 60 * 1000;
 
   const secureCompare = (left: string, right: string): boolean => {
     const a = crypto.createHash("sha256").update(left).digest();
     const b = crypto.createHash("sha256").update(right).digest();
     return crypto.timingSafeEqual(a, b);
+  };
+  const verifyAgent = (req: express.Request): boolean => {
+    if (agentToken.length < 32) return false;
+    const authorization = req.headers.authorization || "";
+    if (!authorization.startsWith("Bearer ")) return false;
+    return secureCompare(authorization.slice(7), agentToken);
   };
   const verifySession = (req: express.Request): boolean => {
     if (!authReady) return false;
@@ -651,6 +658,9 @@ export async function createApp() {
   // All inspection APIs require a valid signed operator session.
   app.use("/api", (req, res, next) => {
     if (req.path === "/health" || req.path.startsWith("/auth/") || req.method === "OPTIONS") return next();
+    // An on-premises sensor has no browser cookie. Accept only its dedicated secret,
+    // and only on the telemetry ingest endpoint.
+    if (req.path === "/lan-agent-report" && verifyAgent(req)) return next();
     if (!authReady) return res.status(503).json({ errorCode: "AUTH_NOT_CONFIGURED", error: "Configure server-side Sentinel authentication before enabling network scans." });
     if (!verifySession(req)) return res.status(401).json({ errorCode: "AUTH_REQUIRED", error: "Đăng nhập quản trị Sentinel để sử dụng các chức năng quét." });
     next();
@@ -2613,20 +2623,58 @@ Format all configuration scripts inside clear Markdown code blocks with language
 
   // Store telemetry submitted by local agent
   const activeLanReports = new Map<string, any>();
+  const reportDirectory = process.env.SENTINEL_DATA_DIR || path.join(process.cwd(), "data");
+  const latestReportFile = path.join(reportDirectory, "lan-report.json");
+  try {
+    const saved = JSON.parse(fs.readFileSync(latestReportFile, "utf8"));
+    if (Array.isArray(saved.devices) && saved.devices.length <= 1024
+        && Number.isFinite(Date.parse(saved.receivedAt))
+        && Date.now() - Date.parse(saved.receivedAt) < 24 * 60 * 60 * 1000) {
+      activeLanReports.set("latest", saved);
+    }
+  } catch {
+    // First start or unavailable persistent volume.
+  }
 
   // 15c. Receiver for Real Local LAN Agent Telemetry
   app.post("/api/lan-agent-report", (req, res) => {
     try {
       const report = req.body;
-      const sessionKey = report.sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      activeLanReports.set(sessionKey, {
-        ...report,
-        receivedAt: new Date().toISOString()
-      });
-      console.log(`[+] Received LAN Agent Telemetry for session: ${sessionKey} (${report.devices?.length || 0} devices)`);
-      res.json({ success: true, count: report.devices?.length || 0 });
+      if (!report || !Array.isArray(report.devices) || report.devices.length > 1024) {
+        return res.status(400).json({ error: "Invalid agent report (devices array, max 1024 required)" });
+      }
+      const rawSession = typeof report.sessionToken === "string" ? report.sessionToken : "";
+      const sessionKey = /^[a-zA-Z0-9_-]{8,128}$/.test(rawSession) ? rawSession : "default-session";
+      const sanitized = {
+        agentVersion: String(report.agentVersion || "").slice(0, 30),
+        sessionToken: sessionKey,
+        timestamp: String(report.timestamp || new Date().toISOString()).slice(0, 48),
+        clientLocalIp: String(report.clientLocalIp || "").slice(0, 64),
+        gatewayIp: String(report.gatewayIp || "").slice(0, 64),
+        subnetRange: String(report.subnetRange || "").slice(0, 64),
+        devices: report.devices.map((device: any) => ({
+          ip: String(device.ip || "").slice(0, 64),
+          mac: String(device.mac || "").slice(0, 32),
+          hostname: String(device.hostname || "").slice(0, 120),
+          openPorts: Array.isArray(device.openPorts) ? device.openPorts.filter((p: unknown) => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536).slice(0, 100) : [],
+          latencyMs: Number.isFinite(device.latencyMs) && device.latencyMs >= 0 ? device.latencyMs : null,
+          isGateway: Boolean(device.isGateway),
+          isCurrentDevice: Boolean(device.isCurrentDevice),
+          measuredAt: String(device.measuredAt || "").slice(0, 48)
+        })),
+        receivedAt: new Date().toISOString(),
+        source: "agent-reported"
+      };
+      fs.mkdirSync(reportDirectory, { recursive: true, mode: 0o700 });
+      const tmp = latestReportFile + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(sanitized), { mode: 0o600 });
+      fs.renameSync(tmp, latestReportFile);
+      activeLanReports.set(sessionKey, sanitized);
+      activeLanReports.set("latest", sanitized);
+      res.json({ success: true, count: sanitized.devices.length, sessionToken: sessionKey });
     } catch (err: any) {
-      res.status(500).json({ error: "Failed to store agent report: " + err.message });
+      console.error("LAN report store failed", err);
+      res.status(500).json({ error: "Unable to persist LAN agent report" });
     }
   });
 
@@ -2637,16 +2685,16 @@ Format all configuration scripts inside clear Markdown code blocks with language
 
       // Check if real telemetry was passed in or cached from sentinel-agent.mjs
       const sessionKey = sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      const cachedReport = activeLanReports.get(sessionKey);
+      const cachedReport = activeLanReports.get(sessionKey) || activeLanReports.get("latest");
       const incomingDevices = Array.isArray(devices) && devices.length > 0 ? devices : (cachedReport?.devices || []);
 
-      // If no agent telemetry is available, Cloud Run container CANNOT reach private RFC1918 LAN
+      // If no agent telemetry is available, Máy chủ Coolify CANNOT reach private RFC1918 LAN
       if (incomingDevices.length === 0) {
         return res.json({
           reachable: false,
           source: 'unavailable',
           errorCode: 'LAN_AGENT_REQUIRED',
-          error: "Cloud Run container đang hoạt động trên đám mây (datacenter), không thể truy cập trực tiếp vào dải mạng nội bộ riêng (192.168.x.x / 10.x.x.x) của bạn do rào cản phân tách mạng NAT.",
+          error: "Máy chủ Coolify đang hoạt động trên đám mây (datacenter), không thể truy cập trực tiếp vào dải mạng nội bộ riêng (192.168.x.x / 10.x.x.x) của bạn do rào cản phân tách mạng NAT.",
           technicalReason: "Theo nguyên tắc không bịa đặt dữ liệu của Sentinel OS, kết quả kiểm toán mạng nội bộ bắt buộc phải đến từ phép đo thực tế của card mạng trên máy bạn.",
           agentRequired: true,
           agentDownloadUrl: "/agent/sentinel-agent.mjs",
@@ -2825,7 +2873,7 @@ Format all configuration scripts inside clear Markdown code blocks with language
             mode: 'hosts',
             reachable: false,
             source: 'unavailable',
-            error: "Không thể quét dải IP nội bộ (RFC 1918) từ Cloud Run container. Hãy sử dụng Sentinel Local Agent.",
+            error: "Không thể quét dải IP nội bộ (RFC 1918) từ Máy chủ Coolify. Hãy sử dụng Sentinel Local Agent.",
             nodes: []
           });
         }
@@ -3586,7 +3634,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
     try {
       const { subnet, gateway, clientIp, sessionToken, devices } = req.body;
       const sessionKey = sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      const cachedReport = activeLanReports.get(sessionKey);
+      const cachedReport = activeLanReports.get(sessionKey) || activeLanReports.get("latest");
       const incomingDevices = Array.isArray(devices) && devices.length > 0 ? devices : (cachedReport?.devices || []);
 
       if (incomingDevices.length === 0) {
@@ -3594,7 +3642,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
           reachable: false,
           source: 'unavailable',
           errorCode: 'LAN_AGENT_REQUIRED',
-          error: "Cloud Run container đang chạy trên đám mây, không thể quét dải mạng nội bộ (RFC1918) của bạn.",
+          error: "Máy chủ Coolify đang chạy trên đám mây, không thể quét dải mạng nội bộ (RFC1918) của bạn.",
           technicalReason: "Để tuân thủ nguyên tắc không bịa số liệu, hãy tải và chạy Sentinel Agent trên máy tính trong mạng LAN.",
           agentRequired: true,
           agentDownloadUrl: "/agent/sentinel-agent.mjs",
@@ -3620,7 +3668,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
         gateway: targetGateway,
         clientIp: targetClientIp,
         scannedRange: `${baseSubnet}.1 - ${baseSubnet}.254`,
-        scanDurationMs: 850,
+        scanDurationMs: null,
         totalEndpointsFound: endpoints.length,
         endpoints,
         review,
@@ -3637,7 +3685,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
     try {
       const { subnet, gateway, clientIp, sessionToken, devices, additional4kStreams, isLargeFileUploader } = req.body;
       const sessionKey = sessionToken || (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'default';
-      const cachedReport = activeLanReports.get(sessionKey);
+      const cachedReport = activeLanReports.get(sessionKey) || activeLanReports.get("latest");
       const incomingDevices = Array.isArray(devices) && devices.length > 0 ? devices : (cachedReport?.devices || []);
 
       if (incomingDevices.length === 0) {
