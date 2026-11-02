@@ -586,7 +586,7 @@ setInterval(() => {
   }
 }, 60000);
 
-async function startServer() {
+export async function createApp() {
   const app = express();
   const PORT = 3000;
 
@@ -4264,14 +4264,14 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  // Vite middleware for local development only; Vercel serves the built SPA separately.
+  if (process.env.VERCEL !== "1" && process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (process.env.VERCEL !== "1") {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
@@ -4279,9 +4279,17 @@ Provide an executive and tactical Threat Intelligence & Defense Briefing in Viet
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Sentinel OS Pentest Suite running on http://localhost:${PORT}`);
-  });
+  return app;
 }
 
-startServer();
+if (process.env.VERCEL !== "1") {
+  createApp().then(app => {
+    const port = Number(process.env.PORT) || 3000;
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`Sentinel OS listening on http://localhost:${port}`);
+    });
+  }).catch(error => {
+    console.error("Unable to start Sentinel server", error);
+    process.exitCode = 1;
+  });
+}
