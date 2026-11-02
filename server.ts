@@ -591,7 +591,7 @@ export async function createApp() {
   app.use(express.json());
 
   // Server-side authentication. Never ship credentials in the browser bundle.
-  // Required for both preview and production Vercel deployments.
+  // Required for preview and production deployments on Coolify.
   const adminPassword = process.env.SENTINEL_ADMIN_PASSWORD || "";
   const sessionSecret = process.env.SENTINEL_SESSION_SECRET || "";
   const authReady = adminPassword.length >= 12 && sessionSecret.length >= 32;
@@ -669,7 +669,7 @@ export async function createApp() {
   // Global rate limiter for security assessment endpoints (60 req / min)
   app.use("/api/", createRateLimiter(60, 60000));
 
-  // Comprehensive health check endpoints for Cloud Run and container probes
+  // Health endpoints for Docker and Coolify container probes
   app.all(["/api/health", "/healthz", "/health"], (_req, res) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
@@ -3731,7 +3731,7 @@ Provide a comprehensive, high-urgency, and professional Local Network & Wi-Fi Se
         return res.status(501).json({
           success: false,
           errorCode: "LAN_AGENT_ACTION_UNAVAILABLE",
-          error: "Chức năng này yêu cầu LAN Agent có quyền quản trị thiết bị mạng. Sentinel trên Vercel chưa thực thi tác động lên router/thiết bị."
+          error: "Chức năng này yêu cầu LAN Agent có quyền quản trị thiết bị mạng. Sentinel chưa tích hợp điều khiển router/thiết bị mạng thực tế."
         });
       }
       if (!endpointId || !action) {
