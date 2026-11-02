@@ -1,0 +1,31 @@
+name: Sentinel Vercel Build Check
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # No lockfile currently exists in the repository, so use npm install
+      # rather than npm ci. Add package-lock.json and switch to npm ci later.
+      - run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run check
+      - name: Vercel frontend build
+        run: npm run build:vercel
+      - name: Verify Vercel config and output
+        run: |
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('vercel.json','utf8'));if(!c.rewrites||!c.functions['api/index.ts'])process.exit(1);"
+          test -s dist/index.html
