@@ -57,3 +57,55 @@ jobs:
             -H 'Authorization: Bearer ci-agent-token-32-bytes-minimum-123456789' \
             -d '{"sessionToken":"ci-session","devices":[{"ip":"192.168.1.20","openPorts":[80],"hostname":"test-client"}]}' \
             http://127.0.0.1:3000/api/lan-agent-report | grep '"success":true'
+
+      - name: Validate Docker Desktop Compose and localhost-only binding
+        run: |
+          cat > .env <<'EOF'
+          NODE_ENV=production
+          PORT=3000
+          SENTINEL_ADMIN_PASSWORD=ci-admin-password-12345
+          SENTINEL_SESSION_SECRET=ci-session-signing-key-32-bytes-minimum-123456
+          SENTINEL_AGENT_TOKEN=ci-agent-token-32-bytes-minimum-123456789
+          GEMINI_API_KEY=
+          EOF
+          docker tag sentinel-ci:${{ github.sha }} sentinel-os:local
+          docker compose -f compose.yaml config --quiet
+          docker compose -f compose.yaml up -d --no-build
+          trap 'docker compose -f compose.yaml down; rm -f .env' EXIT
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl --fail --silent http://127.0.0.1:3000/api/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:3000/api/health | grep '"status":"ok"'
+          docker compose -f compose.yaml port sentinel 3000 | grep '127.0.0.1:3000'
+          docker compose -f compose.yaml stop
+          docker compose -f compose.yaml start
+          curl --retry 10 --retry-delay 1 --retry-connrefused --fail --silent \
+            http://127.0.0.1:3000/api/health | grep '"status":"ok"'
+
+  windows-scripts:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows PowerShell launchers and generate secrets
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem scripts -Filter '*.ps1' | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "Syntax errors in $($_.Name): $errors" }
+          }
+          & .\scripts\Initialize-Sentinel.ps1
+          if (-not (Test-Path .env)) { throw 'Missing .env after initialization' }
+          $settings = Get-Content .env
+          foreach ($key in @('SENTINEL_ADMIN_PASSWORD', 'SENTINEL_SESSION_SECRET', 'SENTINEL_AGENT_TOKEN')) {
+            $line = $settings | Where-Object { $_ -like "$key=*" } | Select-Object -First 1
+            if (-not $line -or ($line -split '=', 2)[1].Length -lt 32) {
+              throw "Invalid generated secret: $key"
+            }
+          }
+          & .\scripts\Initialize-Sentinel.ps1
+          Remove-Item .env -Force
