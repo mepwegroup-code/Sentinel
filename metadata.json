@@ -1,0 +1,6 @@
+{
+  "name": "Sentinel OS - Web Pentest & DDoS Resilience Suite",
+  "description": "Comprehensive web security and network diagnostics suite featuring internal network review & ISP Mbps package advisor, full LAN endpoint management, real-time Threat Heatmap with zoom controls, Fast.com-style speed benchmarking, WHOIS/DNS reconnaissance, CEH v13 web server audits, and DoS resilience testing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

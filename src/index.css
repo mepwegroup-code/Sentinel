@@ -1,0 +1,510 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------------
+   CYBERPUNK SECURITY DEEP DARK THEME DEFINITIONS
+   Aligned with high-contrast, professional cybersecurity metrics
+   ------------------------------------------------------------- */
+
+/* Cyberpunk specific animations and colors */
+html.cyberpunk {
+  --color-bg-cyber: #050811;
+  --color-card-cyber: #0a0e1a;
+  --color-border-cyber: rgba(0, 240, 255, 0.25);
+  --color-text-cyber: #00ff66;
+  --color-neon-pink: #ff0055;
+  --color-neon-cyan: #00f0ff;
+  --color-neon-yellow: #ffea00;
+  
+  background-color: #050811 !important;
+  color: #00ffcc !important;
+}
+
+/* Global resets for Cyberpunk dark mode */
+html.cyberpunk body {
+  background-color: #050811 !important;
+  color: #00ffcc !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+/* Transform standard white backgrounds into high-tech dark cards */
+html.cyberpunk div.bg-white,
+html.cyberpunk section.bg-white,
+html.cyberpunk header.bg-white,
+html.cyberpunk footer.bg-white,
+html.cyberpunk div.bg-slate-50,
+html.cyberpunk main.bg-slate-50,
+html.cyberpunk nav.bg-slate-50,
+html.cyberpunk select,
+html.cyberpunk option {
+  background-color: #0a0e1a !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(0, 240, 255, 0.25) !important;
+}
+
+/* Specific component containers shadow & glow styling */
+html.cyberpunk div.bg-white,
+html.cyberpunk section.bg-white,
+html.cyberpunk header.bg-white {
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.08) !important;
+  border-width: 1px !important;
+}
+
+/* Ensure app main canvas uses the darker cybersecurity backdrop */
+html.cyberpunk .bg-slate-50,
+html.cyberpunk main,
+html.cyberpunk body {
+  background-color: #050811 !important;
+}
+
+/* Headings and labels glow overrides */
+html.cyberpunk h1,
+html.cyberpunk h2,
+html.cyberpunk h3,
+html.cyberpunk h4,
+html.cyberpunk h5,
+html.cyberpunk h6,
+html.cyberpunk .font-bold,
+html.cyberpunk .font-black {
+  color: #00f0ff !important;
+  text-shadow: 0 0 4px rgba(0, 240, 255, 0.3) !important;
+}
+
+/* Text nodes standard readability */
+html.cyberpunk p,
+html.cyberpunk span,
+html.cyberpunk li,
+html.cyberpunk td,
+html.cyberpunk th,
+html.cyberpunk font,
+html.cyberpunk label {
+  color: #cbd5e1 !important;
+}
+
+/* Keep accent text visible and colorful */
+html.cyberpunk .text-blue-600,
+html.cyberpunk .text-blue-500,
+html.cyberpunk .text-indigo-600,
+html.cyberpunk .text-indigo-500 {
+  color: #00f0ff !important;
+}
+
+html.cyberpunk .text-emerald-600,
+html.cyberpunk .text-emerald-500,
+html.cyberpunk .text-green-600 {
+  color: #00ff66 !important;
+}
+
+html.cyberpunk .text-red-600,
+html.cyberpunk .text-red-500 {
+  color: #ff0055 !important;
+}
+
+html.cyberpunk .text-amber-500,
+html.cyberpunk .text-amber-600,
+html.cyberpunk .text-yellow-600 {
+  color: #ffea00 !important;
+}
+
+html.cyberpunk .text-slate-900,
+html.cyberpunk .text-slate-800,
+html.cyberpunk .text-slate-700,
+html.cyberpunk .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* Input Fields overrides */
+html.cyberpunk input[type="text"],
+html.cyberpunk select,
+html.cyberpunk textarea {
+  background-color: #050811 !important;
+  color: #00ffcc !important;
+  border-color: rgba(0, 240, 255, 0.4) !important;
+}
+
+html.cyberpunk input::placeholder {
+  color: rgba(0, 240, 255, 0.35) !important;
+}
+
+/* Borders overrides to keep structures light and futuristic */
+html.cyberpunk .border-slate-200,
+html.cyberpunk .border-slate-100,
+html.cyberpunk .border-slate-300,
+html.cyberpunk .border-slate-800,
+html.cyberpunk .border-slate-900,
+html.cyberpunk border {
+  border-color: rgba(0, 240, 255, 0.15) !important;
+}
+
+/* Buttons and dynamic controllers coloring & hover glows */
+html.cyberpunk button.bg-blue-600,
+html.cyberpunk button.bg-indigo-600,
+html.cyberpunk button.bg-indigo-700,
+html.cyberpunk button.bg-emerald-600 {
+  background-color: #ff0055 !important;
+  color: #ffffff !important;
+  border: 1px solid #ff0055 !important;
+  box-shadow: 0 0 12px rgba(255, 0, 85, 0.4) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+html.cyberpunk button.bg-blue-600:hover,
+html.cyberpunk button.bg-indigo-600:hover,
+html.cyberpunk button.bg-indigo-700:hover,
+html.cyberpunk button.bg-emerald-600:hover {
+  background-color: #ff3377 !important;
+  box-shadow: 0 0 18px rgba(255, 0, 85, 0.6) !important;
+}
+
+html.cyberpunk button.bg-slate-100,
+html.cyberpunk button.bg-slate-200,
+html.cyberpunk button.bg-slate-50 {
+  background-color: #0f172a !important;
+  color: #00ffcc !important;
+  border: 1px solid rgba(0, 240, 255, 0.25) !important;
+}
+
+html.cyberpunk button.bg-slate-100:hover,
+html.cyberpunk button.bg-slate-200:hover {
+  background-color: #1e293b !important;
+  border-color: #00f0ff !important;
+}
+
+/* Interactive Tabs alignment */
+html.cyberpunk .border-blue-600 {
+  border-color: #ff0055 !important;
+  color: #ff0055 !important;
+}
+
+html.cyberpunk nav button {
+  border-radius: 4px !important;
+  margin-right: 4px !important;
+}
+
+html.cyberpunk nav button.border-blue-600 {
+  background-color: rgba(255, 0, 85, 0.08) !important;
+  border-bottom-width: 2px !important;
+  border-color: #ff0055 !important;
+}
+
+/* Holographic Grid overlay filter */
+html.cyberpunk::before {
+  content: " ";
+  display: block;
+  position: fixed;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 255, 255, 0.03));
+  z-index: 99999;
+  background-size: 100% 4px, 6px 100%;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+/* Glowing text highlight filters */
+.cyberpunk-glow {
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+}
+
+/* -------------------------------------------------------------
+   HIGH-FIDELITY BROWSER-NATIVE PRINT & PDF OVERRIDES
+   Engineered for clean, professional executive security reports
+   ------------------------------------------------------------- */
+@media print {
+  /* Enforce exact background colors, borders and graphics retention */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* Completely strip dark cyberpunk holographic scanline overlays */
+  html.cyberpunk::before,
+  body::before,
+  body::after {
+    display: none !important;
+    content: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Professional document page margins (Standard A4 / Letter) */
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm 12mm 15mm;
+  }
+
+  /* Reset document root & canvas to crisp, ink-saving white canvas */
+  html,
+  body {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 10.5pt !important;
+    line-height: 1.45 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  }
+
+  /* -------------------------------------------------------------
+     REMOVE NON-PRINTABLE SCREEN UI CHROME & CONTROLS
+     ------------------------------------------------------------- */
+  header,
+  nav,
+  button,
+  input,
+  select,
+  textarea,
+  form,
+  .no-print,
+  [data-no-print],
+  #theme-toggle-btn,
+  #save-session-btn,
+  #clear-session-btn,
+  .sticky,
+  .fixed,
+  .backdrop-blur-xs,
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce,
+  .cursor-pointer,
+  [role="dialog"],
+  [aria-modal="true"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Re-enable printable container layout expansion */
+  main {
+    display: block !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  .max-w-7xl,
+  .max-w-5xl,
+  .max-w-4xl,
+  .max-w-3xl,
+  .container {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Security Assessment Report Container formatting */
+  #security-assessment-report-document {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Reset cards and containers to clean paper border styling */
+  .bg-white,
+  .bg-slate-50,
+  .bg-slate-900,
+  div[class*="rounded-"] {
+    box-shadow: none !important;
+    background-color: #ffffff !important;
+  }
+
+  .border,
+  .border-slate-100,
+  .border-slate-200,
+  .border-slate-300,
+  .border-slate-800 {
+    border-color: #e2e8f0 !important;
+  }
+
+  /* -------------------------------------------------------------
+     TYPOGRAPHY, HEADERS & CONTRAST
+     ------------------------------------------------------------- */
+  h1, h2, h3, h4, h5, h6 {
+    color: #0f172a !important;
+    text-shadow: none !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  p, span, li, td, th {
+    color: #1e293b !important;
+  }
+
+  strong, b {
+    color: #0f172a !important;
+    font-weight: 700 !important;
+  }
+
+  /* -------------------------------------------------------------
+     PAGINATION & ORPHAN PREVENTION
+     ------------------------------------------------------------- */
+  .break-inside-avoid,
+  .page-break-avoid,
+  article,
+  figure,
+  table,
+  tr,
+  thead,
+  svg,
+  canvas,
+  .grid > div,
+  [class*="border-l-4"],
+  #security-assessment-report-document > div {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .page-break,
+  .break-before-page {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  /* -------------------------------------------------------------
+     DYNAMIC THREAT BADGES & HIGHLIGHT COLORS PRESERVATION
+     ------------------------------------------------------------- */
+  .bg-rose-50,
+  .bg-rose-50\/20,
+  .bg-rose-50\/30,
+  .bg-rose-100 {
+    background-color: #fff1f2 !important;
+    border-color: #fecdd3 !important;
+  }
+  .text-rose-600,
+  .text-rose-700,
+  .text-rose-800,
+  .text-rose-900 {
+    color: #be123c !important;
+  }
+
+  .bg-orange-50,
+  .bg-orange-50\/20,
+  .bg-orange-100 {
+    background-color: #fff7ed !important;
+    border-color: #fed7aa !important;
+  }
+  .text-orange-600,
+  .text-orange-700,
+  .text-orange-800 {
+    color: #c2410c !important;
+  }
+
+  .bg-amber-50,
+  .bg-amber-50\/20,
+  .bg-amber-100 {
+    background-color: #fffbeb !important;
+    border-color: #fde68a !important;
+  }
+  .text-amber-600,
+  .text-amber-700,
+  .text-amber-800 {
+    color: #b45309 !important;
+  }
+
+  .bg-emerald-50,
+  .bg-emerald-50\/20,
+  .bg-emerald-50\/50,
+  .bg-emerald-100 {
+    background-color: #f0fdf4 !important;
+    border-color: #bbf7d0 !important;
+  }
+  .text-emerald-600,
+  .text-emerald-700,
+  .text-emerald-800 {
+    color: #15803d !important;
+  }
+
+  .bg-blue-50,
+  .bg-blue-50\/20,
+  .bg-blue-100 {
+    background-color: #eff6ff !important;
+    border-color: #bfdbfe !important;
+  }
+  .text-blue-600,
+  .text-blue-700,
+  .text-blue-800 {
+    color: #1d4ed8 !important;
+  }
+
+  .bg-indigo-50,
+  .bg-indigo-50\/20,
+  .bg-indigo-50\/50,
+  .bg-indigo-100 {
+    background-color: #eef2ff !important;
+    border-color: #c7d2fe !important;
+  }
+  .text-indigo-600,
+  .text-indigo-700,
+  .text-indigo-800 {
+    color: #4338ca !important;
+  }
+
+  .bg-purple-50,
+  .bg-purple-50\/20,
+  .bg-purple-100 {
+    background-color: #faf5ff !important;
+    border-color: #e9d5ff !important;
+  }
+  .text-purple-600,
+  .text-purple-700,
+  .text-purple-800,
+  .text-purple-900 {
+    color: #7e22ce !important;
+  }
+
+  /* -------------------------------------------------------------
+     CODE, PREFORMATTED BLOCKS & REASONING BLOCKS
+     ------------------------------------------------------------- */
+  pre, code {
+    white-space: pre-wrap !important;
+    word-break: break-all !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+    background-color: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    font-size: 8.5pt !important;
+    padding: 4px 6px !important;
+    border-radius: 4px !important;
+  }
+
+  /* -------------------------------------------------------------
+     CHART & GRAPH VECTOR SCALING
+     ------------------------------------------------------------- */
+  svg {
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* -------------------------------------------------------------
+     PRINT FOOTER METADATA
+     ------------------------------------------------------------- */
+  footer {
+    border-top: 1px solid #cbd5e1 !important;
+    background: transparent !important;
+    padding-top: 8px !important;
+    margin-top: 24px !important;
+    font-size: 8pt !important;
+    color: #64748b !important;
+    display: block !important;
+  }
+}
+
