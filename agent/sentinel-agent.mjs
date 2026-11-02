@@ -26,6 +26,24 @@ const serverArgIdx = args.indexOf('--server');
 const serverUrl = serverArgIdx !== -1 && args[serverArgIdx + 1] ? args[serverArgIdx + 1].replace(/\/$/, '') : null;
 const tokenArgIdx = args.indexOf('--token');
 const sessionToken = tokenArgIdx !== -1 && args[tokenArgIdx + 1] ? args[tokenArgIdx + 1] : 'default-session';
+const agentAuthToken = process.env.SENTINEL_AGENT_TOKEN || '';
+if (serverUrl) {
+  let parsed;
+  try { parsed = new URL(serverUrl); } catch {
+    console.error('[ERROR] --server must be a valid HTTP(S) URL');
+    process.exit(1);
+  }
+  const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+    console.error('[ERROR] Remote Sentinel servers require HTTPS.');
+    process.exit(1);
+  }
+  if (agentAuthToken.length < 32) {
+    console.error('[ERROR] Set SENTINEL_AGENT_TOKEN environment variable (32+ characters) before uploading LAN telemetry.');
+    process.exit(1);
+  }
+}
+
 
 console.log('\x1b[36m%s\x1b[0m', '════════════════════════════════════════════════════════════════');
 console.log('\x1b[1m\x1b[32m%s\x1b[0m', '  SENTINEL OS 2.5 — REAL LOCAL LAN AUDIT SENSOR');
@@ -220,7 +238,7 @@ for (const [ip, mac] of arpMap.entries()) {
 
   if (bestRtt === -1) {
     const pingProbe = await probeTcp(ip, 80, 300);
-    bestRtt = pingProbe.open ? pingProbe.rttMs : 1.5;
+    bestRtt = pingProbe.open ? pingProbe.rttMs : null;
   }
 
   const device = {
@@ -236,7 +254,7 @@ for (const [ip, mac] of arpMap.entries()) {
   };
 
   discoveredDevices.push(device);
-  console.log(`\x1b[32mOnline\x1b[0m (Ping: ${bestRtt}ms, Cổng mở: [${openPorts.join(', ') || 'None'}])`);
+  console.log(`\x1b[32mFound\x1b[0m (TCP RTT: ${bestRtt === null ? 'N/A' : bestRtt + 'ms'}, Cổng mở: [${openPorts.join(', ') || 'None'}])`);
 }
 
 console.log('\n\x1b[36m%s\x1b[0m', '════════════════════════════════════════════════════════════════');
@@ -246,7 +264,7 @@ console.table(discoveredDevices.map(d => ({
   'IP Address': d.ip,
   'MAC Address': d.mac,
   'Hostname': d.hostname.slice(0, 24),
-  'Latency': `${d.latencyMs} ms`,
+  'TCP RTT': d.latencyMs === null ? 'N/A' : `${d.latencyMs} ms`,
   'Open Ports': d.openPorts.join(', ') || 'None',
   'Role': d.isGateway ? 'GATEWAY' : d.isCurrentDevice ? 'THIS MACHINE' : 'HOST'
 })));
@@ -271,7 +289,7 @@ if (serverUrl) {
   try {
     const res = await fetch(`${serverUrl}/api/lan-agent-report`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${agentAuthToken}` },
       body: JSON.stringify(reportPayload),
       signal: AbortSignal.timeout(6000)
     });
@@ -285,5 +303,5 @@ if (serverUrl) {
   }
 } else {
   console.log('\n  [💡] Mẹo: Bạn có thể đẩy trực tiếp kết quả này lên giao diện Sentinel OS bằng lệnh:');
-  console.log(`       \x1b[33mnode sentinel-agent.mjs --server http://localhost:3000\x1b[0m\n`);
+  console.log(`       \x1b[33mSet SENTINEL_AGENT_TOKEN and run: node sentinel-agent.mjs --server https://YOUR-SENTINEL-DOMAIN\x1b[0m\n`);
 }
