@@ -2656,7 +2656,7 @@ Format all configuration scripts inside clear Markdown code blocks with language
           ip: String(device.ip || "").slice(0, 64),
           mac: String(device.mac || "").slice(0, 32),
           hostname: String(device.hostname || "").slice(0, 120),
-          openPorts: Array.isArray(device.openPorts) ? device.openPorts.filter((p: unknown) => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536).slice(0, 100) : [],
+          openPorts: Array.isArray(device.openPorts) ? device.openPorts.filter((p: unknown) => typeof p === "number" && Number.isInteger(p) && p > 0 && p < 65536).slice(0, 100) : [],
           latencyMs: Number.isFinite(device.latencyMs) && device.latencyMs >= 0 ? device.latencyMs : null,
           isGateway: Boolean(device.isGateway),
           isCurrentDevice: Boolean(device.isCurrentDevice),
