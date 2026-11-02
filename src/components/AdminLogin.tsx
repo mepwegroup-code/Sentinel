@@ -10,13 +10,29 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, onClose }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === 'admin' && password === '191095') {
+    setError('');
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.authenticated) {
+        throw new Error(data.error || 'Không thể xác thực tài khoản.');
+      }
+      setPassword('');
       onLogin();
-    } else {
-      setError('Invalid username or password');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể kết nối dịch vụ xác thực.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -55,9 +71,10 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, onClose }) => {
           {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
           <button
             type="submit"
+            disabled={loading}
             className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors cursor-pointer"
           >
-            Authenticate
+            {loading ? 'Đang xác thực...' : 'Đăng nhập'}
           </button>
         </form>
       </div>
